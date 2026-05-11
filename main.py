@@ -1,4 +1,5 @@
 import cv2
+import time
 import mediapipe as mp
 
 
@@ -18,17 +19,25 @@ HAND_CONNECTIONS = [
     (5,9),(9,13),(13,17),            # avuç içi
 ]
 
+def result_callback(result, output_image, timestamp_ms):
+    global latest_result
+    latest_result = result
+
+
+latest_result = None
 MODEL_PATH = "hand_landmarker.task"
 
 options = HandLandmarkerOptions(
     base_options=BaseOptions(model_asset_path=MODEL_PATH),
-    running_mode=VisionRunningMode.IMAGE,
+    running_mode=VisionRunningMode.LIVE_STREAM,
     num_hands=2,
     min_hand_detection_confidence=0.6,
     min_hand_presence_confidence=0.5,
+    result_callback=result_callback,
     min_tracking_confidence=0.5,
 )
 
+landmarker = HandLandmarker.create_from_options(options)
 cap = cv2.VideoCapture(0)
 
 with HandLandmarker.create_from_options(options) as landmarker:
@@ -43,12 +52,14 @@ with HandLandmarker.create_from_options(options) as landmarker:
             data=cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         )
 
-        result = landmarker.detect(mp_image)
+        timestamp = int(time.time() * 1000)
+        landmarker.detect_async(mp_image, timestamp)
 
-        if result.hand_landmarks:
+
+        if latest_result and latest_result.hand_landmarks:
             h, w, _ = frame.shape
 
-            for hand in result.hand_landmarks:
+            for hand in latest_result.hand_landmarks:
                 # Bağlantıları çiz
                 for start_idx, end_idx in HAND_CONNECTIONS:
                     sx = int(hand[start_idx].x * w)

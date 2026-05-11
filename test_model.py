@@ -3,6 +3,7 @@ import mediapipe as mp
 import numpy as np
 import pandas as pd
 import joblib
+import time
 
 
 # Load the trained model and label encoder
@@ -26,18 +27,25 @@ HAND_CONNECTIONS = [
     (5,9),(9,13),(13,17),            # Palm
 ]
 
+latest_result = None
 MODEL_PATH = "hand_landmarker.task"  # Path to the MediaPipe model
+
+def result_callback(result, output_image, timestamp_ms):
+    global latest_result
+    latest_result = result
 
 # HandLandmarker options
 options = HandLandmarkerOptions(
     base_options=BaseOptions(model_asset_path=MODEL_PATH),
-    running_mode=VisionRunningMode.IMAGE,
-    num_hands=1,
+    running_mode=VisionRunningMode.LIVE_STREAM,
+    num_hands=2,
+    result_callback=result_callback,
     min_hand_detection_confidence=0.6,
     min_hand_presence_confidence=0.5,
     min_tracking_confidence=0.5,
 )
 
+decoded_label = ""
 # Start webcam capture
 cap = cv2.VideoCapture(0)
 with HandLandmarker.create_from_options(options) as landmarker:
@@ -53,13 +61,15 @@ with HandLandmarker.create_from_options(options) as landmarker:
         )
 
 
-        result = landmarker.detect(mp_image)
+        timestamp = int(time.time() * 1000)
+        landmarker.detect_async(mp_image, timestamp)
 
-        if result.hand_landmarks:
+        if latest_result and latest_result.hand_landmarks:
             h, w, _ = frame.shape
 
-            for i, hand_landmarks in enumerate(result.hand_landmarks):
-                handedness = result.handedness[i][0].category_name
+            for i, hand_landmarks in enumerate(latest_result.hand_landmarks):
+                if latest_result.hand_landmarks:
+                  handedness = latest_result.handedness[i][0].category_name
 
                 for start_idx, end_idx in HAND_CONNECTIONS:
                     sx = int(hand_landmarks[start_idx].x * w)
@@ -90,7 +100,7 @@ with HandLandmarker.create_from_options(options) as landmarker:
                 feature_names = [f"{c}{i}" for i in range(21) for c in ["x", "y", "z"]]
                 features_df = pd.DataFrame([features], columns=feature_names)
                 prediction = rf_model.predict(features_df)
-                decoded_label = label_encoder.inverse_transform(prediction)[0]
+                decoded_label += label_encoder.inverse_transform(prediction)[0]
 
                 # Display the prediction on the frame
                 cv2.putText(frame, f"Gesture: {decoded_label}", (10, 50),
