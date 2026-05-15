@@ -1,0 +1,460 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>SHUSHA - 1.0</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.5/socket.io.min.js"></script>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:        #0d0f14;
+      --surface:   #161a23;
+      --surface2:  #1e2330;
+      --border:    #2a3045;
+      --accent:    #4f8ef7;
+      --accent2:   #6ee7b7;
+      --danger:    #f87171;
+      --text:      #e2e8f0;
+      --text-dim:  #64748b;
+      --radius:    12px;
+      --shadow:    0 4px 24px rgba(0,0,0,0.5);
+    }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: 'Segoe UI', system-ui, sans-serif;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 24px 16px;
+      gap: 20px;
+    }
+
+    /* ── Başlık ── */
+    header {
+      text-align: center;
+    }
+    header h1 {
+      font-size: 1.6rem;
+      font-weight: 700;
+      background: linear-gradient(135deg, var(--accent));
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+    header p {
+      color: var(--text-dim);
+      font-size: .85rem;
+      margin-top: 4px;
+    }
+
+    /* ── Ana düzen ── */
+    .layout {
+      display: flex;
+      gap: 20px;
+      width: 100%;
+      max-width: 1100px;
+      flex-wrap: wrap;
+      justify-content: center;
+    }
+
+    /* ── Kamera paneli ── */
+    .camera-panel {
+      position: relative;
+      flex: 0 0 auto;
+      width: 640px;
+      max-width: 100%;
+    }
+
+    #videoEl {
+      width: 100%;
+      border-radius: var(--radius);
+      display: block;
+      transform: scaleX(-1); /* ayna görüntü */
+    }
+
+    #overlayCanvas {
+      position: absolute;
+      top: 0; left: 0;
+      width: 100%;
+      height: 100%;
+      border-radius: var(--radius);
+      pointer-events: none;
+      transform: scaleX(-1);
+    }
+
+    /* Durum rozeti */
+    #statusBadge {
+      position: absolute;
+      top: 12px; left: 12px;
+      background: rgba(0,0,0,.65);
+      backdrop-filter: blur(6px);
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      padding: 4px 12px;
+      font-size: .78rem;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      z-index: 10;
+    }
+    #statusDot {
+      width: 8px; height: 8px;
+      border-radius: 50%;
+      background: var(--danger);
+      transition: background .3s;
+    }
+    #statusDot.active { background: var(--accent2); }
+
+    /* Mevcut jest etiketi */
+    #gestureLabel {
+      position: absolute;
+      bottom: 12px; left: 50%;
+      transform: translateX(-50%);
+      background: rgba(79,142,247,.18);
+      border: 1px solid rgba(79,142,247,.4);
+      border-radius: 20px;
+      padding: 5px 18px;
+      font-size: .9rem;
+      font-weight: 600;
+      letter-spacing: .05em;
+      color: var(--accent);
+      backdrop-filter: blur(8px);
+      z-index: 10;
+      transition: opacity .2s;
+      opacity: 0;
+    }
+    #gestureLabel.show { opacity: 1; }
+
+    /* ── Sağ panel ── */
+    .info-panel {
+      flex: 1;
+      min-width: 260px;
+      max-width: 400px;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 18px;
+      box-shadow: var(--shadow);
+    }
+
+    .card-title {
+      font-size: .7rem;
+      font-weight: 700;
+      letter-spacing: .1em;
+      text-transform: uppercase;
+      color: var(--text-dim);
+      margin-bottom: 12px;
+    }
+
+    /* Yazı alanı */
+    #outputText {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 14px;
+      min-height: 110px;
+      font-size: 1.35rem;
+      line-height: 1.6;
+      word-break: break-all;
+      color: var(--text);
+      letter-spacing: .03em;
+    }
+    #outputText .cursor {
+      display: inline-block;
+      width: 2px;
+      height: 1.2em;
+      background: var(--accent);
+      vertical-align: text-bottom;
+      animation: blink 1s step-end infinite;
+    }
+    @keyframes blink { 50% { opacity: 0; } }
+
+    /* Aksiyonlar */
+    .actions {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+    .btn {
+      flex: 1;
+      padding: 9px 14px;
+      border: none;
+      border-radius: 8px;
+      cursor: pointer;
+      font-size: .85rem;
+      font-weight: 600;
+      transition: opacity .15s, transform .1s;
+    }
+    .btn:active { transform: scale(.97); }
+    .btn-danger  { background: var(--accent); color: #fff; }
+    .btn-danger:hover  { background: var(--danger); color: #fff; }
+    .btn-neutral { background: var(--surface2); color: var(--text); border: 1px solid var(--border); }
+    .btn:hover   { opacity: .85; }
+
+    /* İstatistik */
+    .stats {
+      display: flex;
+      gap: 10px;
+    }
+    .stat-chip {
+      flex: 1;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 10px;
+      text-align: center;
+    }
+    .stat-value {
+      font-size: 1.3rem;
+      font-weight: 700;
+      color: var(--accent);
+    }
+    .stat-label {
+      font-size: .7rem;
+      color: var(--text-dim);
+      margin-top: 2px;
+    }
+
+    /* Scrollbar */
+    ::-webkit-scrollbar { width: 4px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+  </style>
+</head>
+<body>
+
+  <header>
+    <h1>SHUSHA - 1.0</h1>
+    <p>İşaret dili dönüştürücü</p>
+  </header>
+
+  <div class="layout">
+
+    <!-- Kamera -->
+    <div class="camera-panel">
+      <video id="videoEl" autoplay playsinline muted></video>
+      <canvas id="overlayCanvas"></canvas>
+      <div id="statusBadge">
+        <div id="statusDot"></div>
+        <span id="statusText">Bağlanıyor…</span>
+      </div>
+      <div id="gestureLabel">—</div>
+    </div>
+
+    <!-- Sağ Panel -->
+    <div class="info-panel">
+
+      <!-- Yazı çıktısı -->
+      <div class="card">
+        <div class="card-title">Oluşan Metin</div>
+        <div id="outputText"><span class="cursor"></span></div>
+        <div class="actions" style="margin-top:12px;">
+          <button class="btn btn-neutral" onclick="copyText()">Kopyala</button>
+          <button class="btn btn-danger"  onclick="clearText()">Temizle</button>
+        </div>
+      </div>
+
+      <!-- İstatistikler -->
+      <div class="card">
+        <div class="card-title">İstatistikler</div>
+        <div class="stats">
+          <div class="stat-chip">
+            <div class="stat-value" id="charCount">0</div>
+            <div class="stat-label">Karakter</div>
+          </div>
+          <div class="stat-chip">
+            <div class="stat-value" id="gestureCount">0</div>
+            <div class="stat-label">Jest</div>
+          </div>
+          <div class="stat-chip">
+            <div class="stat-value" id="handCount">0</div>
+            <div class="stat-label">El Sayısı</div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <script>
+    /* Değişkenler*/
+    const video        = document.getElementById('videoEl');
+    const canvas       = document.getElementById('overlayCanvas');
+    const ctx          = canvas.getContext('2d');
+    const statusDot    = document.getElementById('statusDot');
+    const statusText   = document.getElementById('statusText');
+    const gestureLabel = document.getElementById('gestureLabel');
+    const outputText   = document.getElementById('outputText');
+    const charCount    = document.getElementById('charCount');
+    const gestureCount = document.getElementById('gestureCount');
+    const handCount    = document.getElementById('handCount');
+
+    let totalGestures = 0;
+    let frameInterval = null;
+    const FRAME_RATE  = 15; // saniyede kaç kare gönderilsin
+
+    const HAND_CONNECTIONS = [
+      [0,1],[1,2],[2,3],[3,4],
+      [0,5],[5,6],[6,7],[7,8],
+      [0,9],[9,10],[10,11],[11,12],
+      [0,13],[13,14],[14,15],[15,16],
+      [0,17],[17,18],[18,19],[19,20],
+      [5,9],[9,13],[13,17],
+    ];
+
+    /*---------- */
+    /* WebSocket*/
+    const socket = io();
+
+    socket.on('connect', () => {
+      statusDot.classList.add('active');
+      statusText.textContent = 'Bağlı';
+      startCamera();
+    });
+
+    socket.on('disconnect', () => {
+      statusDot.classList.remove('active');
+      statusText.textContent = 'Servise Bağlanılamıyor !';
+      stopFrameLoop();
+    });
+
+    /* Sunucudan overlay verisi geldiğinde */
+    socket.on('overlay', (data) => {
+      drawOverlay(data.hands);
+      handCount.textContent = data.hands.length;
+
+      if (data.current_gesture) {
+        gestureLabel.textContent = data.current_gesture.toUpperCase();
+        gestureLabel.classList.add('show');
+      } else {
+        gestureLabel.classList.remove('show');
+      }
+
+      updateText(data.committed_text);
+    });
+
+    /* Karakter commit edildiğinde */
+    socket.on('text_update', (data) => {
+      updateText(data.text);
+      totalGestures++;
+      gestureCount.textContent = totalGestures;
+    });
+
+    /*--------*/
+    /* Kamera*/
+    async function startCamera() {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: { width: 640, height: 480, facingMode: 'user' },
+          audio: false,
+        });
+        video.srcObject = stream;
+        video.onloadedmetadata = () => {
+          canvas.width  = video.videoWidth;
+          canvas.height = video.videoHeight;
+          startFrameLoop();
+        };
+      } catch (err) {
+        statusText.textContent = 'Kamera Hatası';
+        console.error(err);
+      }
+    }
+
+    /*-----------------------*/
+    /* Kare gönderme döngüsü*/
+    function startFrameLoop() {
+      if (frameInterval) clearInterval(frameInterval);
+      frameInterval = setInterval(sendFrame, 1000 / FRAME_RATE);
+    }
+
+    function stopFrameLoop() {
+      if (frameInterval) { clearInterval(frameInterval); frameInterval = null; }
+    }
+
+    // Küçük bir offscreen canvas ile sıkıştırma
+    const offscreen = document.createElement('canvas');
+    offscreen.width = 320;
+    offscreen.height = 240;
+    const offCtx = offscreen.getContext('2d');
+
+    function sendFrame() {
+      if (video.readyState < 2) return;
+      offCtx.drawImage(video, 0, 0, offscreen.width, offscreen.height);
+      const b64 = offscreen.toDataURL('image/jpeg', 0.6);
+      socket.emit('frame', { image: b64 });
+    }
+
+    /*-------------------------*/
+    /* Overlay çizimi (canvas) */
+    function drawOverlay(hands) {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      if (!hands || hands.length === 0) return;
+
+      const W = canvas.width;
+      const H = canvas.height;
+
+      for (const hand of hands) {
+        const pts = hand.points;
+
+        // Bağlantılar
+        ctx.strokeStyle = 'rgba(79,142,247,0.7)';
+        ctx.lineWidth   = 2;
+        for (const [a, b] of HAND_CONNECTIONS) {
+          ctx.beginPath();
+          ctx.moveTo(pts[a].x * W, pts[a].y * H);
+          ctx.lineTo(pts[b].x * W, pts[b].y * H);
+          ctx.stroke();
+        }
+
+        // Noktalar
+        for (let i = 0; i < pts.length; i++) {
+          const x = pts[i].x * W;
+          const y = pts[i].y * H;
+          ctx.beginPath();
+          ctx.arc(x, y, i === 0 ? 7 : 4, 0, Math.PI * 2);
+          ctx.fillStyle = i === 0 ? 'rgba(110,231,183,0.9)' : 'rgba(255,255,255,0.85)';
+          ctx.fill();
+        }
+      }
+    }
+    /*------------------*/
+    /* UI güncellemeleri*/
+    function updateText(text) {
+      outputText.innerHTML = escapeHtml(text) + '<span class="cursor"></span>';
+      charCount.textContent = text.length;
+    }
+
+    function escapeHtml(str) {
+      return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    }
+
+    function copyText() {
+      const text = outputText.textContent.replace('|','');
+      navigator.clipboard.writeText(text).then(() => alert('Metin kopyalandı!'));
+    }
+
+    function clearText() {
+      socket.emit('clear_text');
+    }
+
+    /* Sunucudan temizleme onayı */
+    socket.on('text_cleared', () => {
+      updateText('');
+      totalGestures = 0;
+      gestureCount.textContent = 0;
+    });
+  </script>
+</body>
+</html>
+s
