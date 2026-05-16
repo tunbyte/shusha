@@ -1,4 +1,5 @@
-# Sign Language to Text Converter
+# SHUSHA 1.0
+### Sign Language to Text Converter
 
 A real-time sign language recognition system that converts hand gestures into text using computer vision and machine learning technologies.
 
